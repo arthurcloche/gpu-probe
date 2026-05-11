@@ -23,7 +23,7 @@ function fmtNum(n) {
 export function printSnapshot(snap) {
   const inv = snap.inventory;
   console.groupCollapsed(
-    `%c[wgl-analyzer]%c ${snap.version}  ${inv.programs}p ${inv.buffers}b ${inv.textures}t ${inv.framebuffers}f  ${fmtNum(snap.totals.drawCalls)} draws  ${fmtNum(snap.totals.triangles)} tris`,
+    `%c[gpu-probe]%c ${snap.version}  ${inv.programs}p ${inv.buffers}b ${inv.textures}t ${inv.framebuffers}f  ${fmtNum(snap.totals.drawCalls)} draws  ${fmtNum(snap.totals.triangles)} tris`,
     S.title, S.dim
   );
 

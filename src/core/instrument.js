@@ -709,7 +709,7 @@ export function patchGetContext(onContext) {
     const ctx = original.call(this, type, ...rest);
     if (ctx && (type === "webgl2" || type === "webgl" || type === "experimental-webgl")) {
       try { onContext(ctx, this, type === "webgl2" ? "webgl2" : "webgl"); }
-      catch (e) { console.warn("[wgl-analyzer] onContext failed:", e); }
+      catch (e) { console.warn("[gpu-probe] onContext failed:", e); }
     }
     return ctx;
   };

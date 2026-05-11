@@ -144,12 +144,12 @@ export class Analyzer {
     const snap = this.data();
     if (!snap.contexts.length) {
       console.warn(
-        "[wgl-analyzer] No WebGL contexts attached. Try analyzer.scan() after the scene renders."
+        "[gpu-probe] No WebGL contexts attached. Try analyzer.scan() after the scene renders."
       );
       return snap;
     }
     console.log(
-      `%c[wgl-analyzer]%c ${snap.contexts.length} context(s) on ${snap.url}`,
+      `%c[gpu-probe]%c ${snap.contexts.length} context(s) on ${snap.url}`,
       "color:#0bf;font-weight:bold",
       "color:#888"
     );
@@ -157,7 +157,7 @@ export class Analyzer {
     return snap;
   }
 
-  download(filename = "webgl-analyzer.json") {
+  download(filename = "gpu-probe.json") {
     const snap = this.data();
     const blob = new Blob([JSON.stringify(snap, null, 2)], {
       type: "application/json",

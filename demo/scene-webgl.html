@@ -29,8 +29,8 @@
     <script src="../dist/gpu-probe.js"></script>
     <script>
       // Install BEFORE three.js creates its WebGL context so it's caught.
-      WebGLAnalyzer.install();
-      WebGLAnalyzer.showHUD();
+      GPUProbe.install();
+      GPUProbe.showHUD();
     </script>
 
     <script type="importmap">
@@ -254,7 +254,7 @@
         }));
 
         // ---- Tell the analyzer about the scene -----------------------
-        WebGLAnalyzer.attachScene(scene, {
+        GPUProbe.attachScene(scene, {
           label: "main", renderer,
           models: [{ root: bag, label: "lowpoly-bag", source: "assets/lowpoly-bag.glb" }],
         });

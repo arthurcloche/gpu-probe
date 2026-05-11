@@ -1,11 +1,14 @@
-// Library entry. Exposes `window.WebGLAnalyzer` (and `window.WebGPUAnalyzer`
-// when the platform supports it).
+// Library entry. Exposes `window.GPUProbe` — the umbrella analyzer covering
+// both WebGL2 and WebGPU contexts on the page.
 //
 //   <script src="gpu-probe.js"></script>
 //   <script>
-//     WebGLAnalyzer.install();   // patches getContext (webgl, webgl2, webgpu)
-//     WebGLAnalyzer.showHUD();   // tabbed live panel
+//     GPUProbe.install();   // patches getContext (webgl, webgl2, webgpu)
+//     GPUProbe.showHUD();   // tabbed live panel
 //   </script>
+//
+// Per-API analyzers are exposed as `GPUProbe.webgl` and `GPUProbe.webgpu`
+// for advanced use.
 //
 // Load BEFORE the app creates its WebGL/WebGPU context for full coverage.
 
@@ -39,7 +42,7 @@ const api = {
   detachModel: (root)         => { scenes.detachModel(root); return api; },
   data:      () => ({ webgl: webgl.data(), webgpu: webgpu.data() }),
   report:    () => { webgl.report(); if (webgpu.records.size) webgpu.report(); },
-  download:  (filename = "wgl-analyzer.json") => {
+  download:  (filename = "gpu-probe.json") => {
     const data = api.data();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -54,8 +57,7 @@ const api = {
 };
 
 if (typeof globalThis !== "undefined") {
-  globalThis.WebGLAnalyzer = api;
-  globalThis.WebGPUAnalyzer = webgpu;
+  globalThis.GPUProbe = api;
 }
 
 export default api;

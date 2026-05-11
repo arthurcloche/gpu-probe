@@ -307,7 +307,7 @@ export function mountHUD(analyzers) {
     padding: "6px 8px", borderBottom: "1px solid #222", cursor: "move",
   });
   const titleWrap = el("div");
-  const title = el("span", { color: "#0bf", fontWeight: "bold" }, "wgl-analyzer");
+  const title = el("span", { color: "#0bf", fontWeight: "bold" }, "gpu-probe");
   const badge = el("span", { color: "#666", marginLeft: "6px" }, "");
   titleWrap.append(title, badge);
   const collapseBtn = el("button", null, "▾"); collapseBtn.className = "wgla-iconbtn";
@@ -1495,7 +1495,7 @@ export function mountHUD(analyzers) {
   function buildSceneTab() {
     const r = el("div");
     if (!scenes || !scenes.scenes.length) {
-      const e = el("div", null, "no scene attached  —  call WebGLAnalyzer.attachScene(scene)");
+      const e = el("div", null, "no scene attached  —  call GPUProbe.attachScene(scene)");
       e.className = "wgla-empty"; r.appendChild(e);
       return { root: r };
     }
@@ -2207,7 +2207,7 @@ function downloadCombined(webgl, webgpu) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = "wgl-analyzer.json";
+  a.href = url; a.download = "gpu-probe.json";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

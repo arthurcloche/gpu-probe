@@ -56,7 +56,7 @@ src/
     analyzer.js     WebGPUAnalyzer (sibling to WebGL Analyzer)
   ui/
     hud.js          tabbed floating panel (Live / Frame / Programs / Resources / GPU)
-  index.js          library entry → window.WebGLAnalyzer (+ window.WebGPUAnalyzer)
+  index.js          library entry → window.GPUProbe (umbrella API)
   bookmarklet.js    bookmarklet entry — auto-install + HUD
 build.mjs           esbuild build (library + bookmarklet + javascript: URL)
 demo/
@@ -74,7 +74,7 @@ pnpm serve            # http://localhost:8080/demo/
 
 | file                       | what                                                          |
 | -------------------------- | ------------------------------------------------------------- |
-| `dist/gpu-probe.js`          | readable IIFE, exposes `WebGLAnalyzer` + `WebGPUAnalyzer`     |
+| `dist/gpu-probe.js`          | readable IIFE, exposes `GPUProbe` (umbrella API)              |
 | `dist/gpu-probe.min.js`      | minified IIFE                                                 |
 | `dist/bookmarklet.js`        | minified IIFE, auto-runs on load                              |
 | `dist/bookmarklet.url.txt`   | `javascript:` URL — paste as a bookmark URL                   |
@@ -83,16 +83,16 @@ pnpm serve            # http://localhost:8080/demo/
 
 ```html
 <script src="dist/gpu-probe.js"></script>
-<script>WebGLAnalyzer.install(); WebGLAnalyzer.showHUD();</script>
+<script>GPUProbe.install(); GPUProbe.showHUD();</script>
 <!-- your scene script(s) here -->
 ```
 
 Console:
 ```js
-WebGLAnalyzer.report();              // pretty console output for both
-WebGLAnalyzer.data();                // { webgl, webgpu } JSON-safe snapshot
-WebGLAnalyzer.download();            // save snapshot
-WebGLAnalyzer.reset();               // clear counters, keep resources
+GPUProbe.report();              // pretty console output for both
+GPUProbe.data();                // { webgl, webgpu } JSON-safe snapshot
+GPUProbe.download();            // save snapshot
+GPUProbe.reset();               // clear counters, keep resources
 ```
 
 ## Use as a bookmarklet
@@ -106,16 +106,17 @@ Re-clicking re-scans and re-mounts the HUD. If the scene was already running whe
 ## API
 
 ```ts
-WebGLAnalyzer.install()              // patches getContext for webgl/webgl2/webgpu
-WebGLAnalyzer.scan()                 // re-walk DOM for canvases
-WebGLAnalyzer.attach(gl, canvas?)    // manual attach to a known WebGL context
-WebGLAnalyzer.report()               // pretty console output
-WebGLAnalyzer.data()                 // { webgl, webgpu } snapshot
-WebGLAnalyzer.download(filename?)    // save snapshot as JSON
-WebGLAnalyzer.reset()                // clear counters
-WebGLAnalyzer.showHUD() / hideHUD()  // tabbed live panel
-WebGLAnalyzer.webgl                  // the underlying WebGL Analyzer (.onFrame, .records)
-WebGLAnalyzer.webgpu                 // the underlying WebGPUAnalyzer
+GPUProbe.install()              // patches getContext for webgl/webgl2/webgpu
+GPUProbe.scan()                 // re-walk DOM for canvases
+GPUProbe.attach(gl, canvas?)    // manual attach to a known WebGL context
+GPUProbe.attachScene(scene)     // attach a Three.js scene (WebGLRenderer or WebGPURenderer)
+GPUProbe.report()               // pretty console output
+GPUProbe.data()                 // { webgl, webgpu } snapshot
+GPUProbe.download(filename?)    // save snapshot as JSON
+GPUProbe.reset()                // clear counters
+GPUProbe.showHUD() / hideHUD()  // tabbed live panel
+GPUProbe.webgl                  // underlying per-API analyzer (.onFrame, .records)
+GPUProbe.webgpu                 // underlying per-API analyzer
 ```
 
 The HUD is a tabbed panel:

@@ -6,12 +6,12 @@
 // on every object. Works for both WebGLRenderer and WebGPURenderer scenes.
 //
 // Usage:
-//   WebGLAnalyzer.attachScene(scene, { label: "main", renderer });
-//   WebGLAnalyzer.detachScene(scene);
+//   GPUProbe.attachScene(scene, { label: "main", renderer });
+//   GPUProbe.detachScene(scene);
 //
 //   // Optional — register loaded asset roots so the Scene tab can group
 //   // their meshes/textures separately from procedural content.
-//   WebGLAnalyzer.attachModel(gltf.scene, { label: "bag", source: "bag.glb", kind: "glb" });
+//   GPUProbe.attachModel(gltf.scene, { label: "bag", source: "bag.glb", kind: "glb" });
 //   // (or pass an array via attachScene({ models: […] }))
 
 const TEXTURE_MAP_KEYS = [

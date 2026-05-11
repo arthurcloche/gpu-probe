@@ -15,7 +15,7 @@ if (document.readyState === "loading") {
 }
 
 if (typeof globalThis !== "undefined") {
-  globalThis.WebGLAnalyzer = {
+  globalThis.GPUProbe = {
     webgl, webgpu,
     install:  () => { webgl.install(); webgpu.install(); },
     scan:     () => webgl.scan(),
@@ -24,11 +24,10 @@ if (typeof globalThis !== "undefined") {
     reset:    () => { webgl.reset(); webgpu.reset(); },
     showHUD:  () => mountHUD({ webgl, webgpu }),
   };
-  globalThis.WebGPUAnalyzer = webgpu;
 }
 
 console.log(
-  "%c[wgl-analyzer]%c installed. Use the HUD or `WebGLAnalyzer.report()`.",
+  "%c[gpu-probe]%c installed. Use the HUD or `GPUProbe.report()`.",
   "color:#0bf;font-weight:bold",
   "color:#888"
 );
