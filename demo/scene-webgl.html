@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>three.js webgl2 stress scene · webgl-analyzer demo</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0a0a; color: #eee;
+        font: 13px ui-sans-serif, system-ui; }
+      header { padding: 8px 12px; border-bottom: 1px solid #222; }
+      header h1 { font-size: 14px; margin: 0; }
+      header p  { margin: 4px 0 0; color: #888; font-size: 12px; }
+      header code { background: #181818; padding: 2px 5px; border-radius: 3px; }
+      #scene { display: block; width: 100%; height: calc(100vh - 60px); }
+      #err { color: #f55; font: 12px ui-monospace, Menlo, monospace; padding: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>three.js · webgl2 stress scene</h1>
+      <p>
+        GLB load · instanced cubes · particles (THREE.Points) ·
+        render-target post · GPGPU ping-pong fluid sim.
+        Open the HUD's <code>Scene</code>, <code>Frame</code>, <code>Programs</code>, <code>Resources</code> tabs.
+      </p>
+    </header>
+    <canvas id="scene"></canvas>
+    <div id="err"></div>
+
+    <script src="../dist/webgl-analyzer.js"></script>
+    <script>
+      // Install BEFORE three.js creates its WebGL context so it's caught.
+      WebGLAnalyzer.install();
+      WebGLAnalyzer.showHUD();
+    </script>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "three":          "https://esm.sh/three@0.169.0",
+        "three/addons/":  "https://esm.sh/three@0.169.0/examples/jsm/"
+      }
+    }
+    </script>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader }      from "three/addons/loaders/GLTFLoader.js";
+      import { OrbitControls }   from "three/addons/controls/OrbitControls.js";
+      import { EffectComposer }  from "three/addons/postprocessing/EffectComposer.js";
+      import { RenderPass }      from "three/addons/postprocessing/RenderPass.js";
+      import { ShaderPass }      from "three/addons/postprocessing/ShaderPass.js";
+      import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+
+      const errEl = document.getElementById("err");
+      try {
+        await main();
+      } catch (e) {
+        console.error(e);
+        errEl.textContent = e.stack || String(e);
+      }
+
+      async function main() {
+        const canvas = document.getElementById("scene");
+        const renderer = new THREE.WebGLRenderer({
+          canvas, antialias: true, powerPreference: "high-performance",
+        });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x05060a);
+        scene.fog = new THREE.Fog(0x05060a, 8, 28);
+
+        const camera = new THREE.PerspectiveCamera(45, 16 / 9, 0.05, 100);
+        camera.position.set(3.6, 2.4, 4.2);
+
+        const controls = new OrbitControls(camera, canvas);
+        controls.target.set(0, 0.6, 0);
+        controls.enableDamping = true;
+
+        // Lights
+        scene.add(new THREE.HemisphereLight(0x88ccff, 0x111122, 0.6));
+        const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+        dir.position.set(4, 6, 3);
+        scene.add(dir);
+        const point = new THREE.PointLight(0xff66cc, 12, 14, 2);
+        point.position.set(-1.2, 1.4, 1.0);
+        scene.add(point);
+
+        // Ground (so the GLB sits on something visible)
+        const ground = new THREE.Mesh(
+          new THREE.CircleGeometry(8, 48),
+          new THREE.MeshStandardMaterial({ color: 0x101015, roughness: 0.85, metalness: 0.05 }),
+        );
+        ground.rotation.x = -Math.PI / 2;
+        scene.add(ground);
+
+        // ---- 1) GLB --------------------------------------------------
+        const gltf = await new GLTFLoader().loadAsync("./assets/lowpoly-bag.glb");
+        const bag = gltf.scene;
+        bag.name = "lowpoly-bag";
+        // Normalize size around ~1.2m tall, place on ground.
+        const box = new THREE.Box3().setFromObject(bag);
+        const size = new THREE.Vector3(); box.getSize(size);
+        const targetH = 1.4;
+        const scale = targetH / Math.max(size.y, 1e-3);
+        bag.scale.setScalar(scale);
+        bag.position.y = -box.min.y * scale;
+        scene.add(bag);
+
+        // ---- 2) Instanced cubes orbiting -----------------------------
+        // ~1500 small cubes; 1 draw call but lots of instances.
+        const INSTANCES = 1500;
+        const cubeGeom = new THREE.BoxGeometry(0.05, 0.05, 0.05);
+        const cubeMat  = new THREE.MeshStandardMaterial({
+          color: 0x66ddff, roughness: 0.4, metalness: 0.6,
+        });
+        const cubes = new THREE.InstancedMesh(cubeGeom, cubeMat, INSTANCES);
+        cubes.name = "orbiting-cubes";
+        const dummy = new THREE.Object3D();
+        const cubeData = new Array(INSTANCES);
+        for (let i = 0; i < INSTANCES; i++) {
+          const r  = 1.6 + Math.random() * 2.0;
+          const a  = Math.random() * Math.PI * 2;
+          const y  = (Math.random() - 0.5) * 1.6 + 1.2;
+          const sp = (Math.random() * 0.5 + 0.2) * (Math.random() < 0.5 ? -1 : 1);
+          cubeData[i] = { r, a, y, sp };
+        }
+        scene.add(cubes);
+
+        // ---- 3) Particles (THREE.Points) -----------------------------
+        const PARTICLES = 4000;
+        const pPos = new Float32Array(PARTICLES * 3);
+        const pCol = new Float32Array(PARTICLES * 3);
+        const tmpC = new THREE.Color();
+        for (let i = 0; i < PARTICLES; i++) {
+          const r = Math.cbrt(Math.random()) * 4;
+          const t = Math.random() * Math.PI * 2;
+          const u = Math.random() * 2 - 1;
+          pPos[i*3+0] = r * Math.sqrt(1 - u*u) * Math.cos(t);
+          pPos[i*3+1] = 0.4 + Math.abs(u) * 2.4;
+          pPos[i*3+2] = r * Math.sqrt(1 - u*u) * Math.sin(t);
+          tmpC.setHSL(Math.random() * 0.2 + 0.55, 0.8, 0.6).toArray(pCol, i*3);
+        }
+        const pGeom = new THREE.BufferGeometry();
+        pGeom.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+        pGeom.setAttribute("color",    new THREE.BufferAttribute(pCol, 3));
+        const pMat = new THREE.PointsMaterial({
+          size: 0.045, vertexColors: true, transparent: true,
+          opacity: 0.85, depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        });
+        const points = new THREE.Points(pGeom, pMat);
+        points.name = "particles";
+        scene.add(points);
+
+        // ---- 4) GPGPU ping-pong "fluid" --------------------------------
+        // Two RGBA float render targets, swapped each frame. A sim shader
+        // reads from prev and writes a slightly advected/diffused color
+        // field; a debug quad in the scene displays the current state.
+        const SIM = 256;
+        const rtOpts = {
+          type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+          minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+          wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping,
+          depthBuffer: false, stencilBuffer: false,
+        };
+        let rtA = new THREE.WebGLRenderTarget(SIM, SIM, rtOpts);
+        let rtB = new THREE.WebGLRenderTarget(SIM, SIM, rtOpts);
+        rtA.texture.name = "fluid.A";
+        rtB.texture.name = "fluid.B";
+
+        // Seed rtA with some color
+        {
+          const seedScene = new THREE.Scene();
+          const seedCam   = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+          const seedMat   = new THREE.ShaderMaterial({
+            uniforms: {},
+            vertexShader: `void main() { gl_Position = vec4(position, 1.0); }`,
+            fragmentShader: `
+              precision highp float;
+              void main() {
+                vec2 uv = gl_FragCoord.xy / ${SIM}.0;
+                float d = distance(uv, vec2(0.5));
+                vec3 c = vec3(0.5 + 0.5*sin(uv.x*12.0), 0.5 + 0.5*sin(uv.y*8.0), 0.5);
+                gl_FragColor = vec4(c * smoothstep(0.5, 0.0, d), 1.0);
+              }`,
+          });
+          seedScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), seedMat));
+          renderer.setRenderTarget(rtA);
+          renderer.render(seedScene, seedCam);
+          renderer.setRenderTarget(null);
+          seedMat.dispose();
+        }
+
+        const simScene = new THREE.Scene();
+        const simCam   = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const simMat = new THREE.ShaderMaterial({
+          uniforms: { uPrev: { value: rtA.texture }, uTime: { value: 0 } },
+          vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`,
+          fragmentShader: `
+            precision highp float;
+            varying vec2 vUv;
+            uniform sampler2D uPrev;
+            uniform float uTime;
+            void main() {
+              vec2 flow = vec2(
+                sin(vUv.y * 6.2831 + uTime * 0.6),
+                cos(vUv.x * 6.2831 + uTime * 0.4)
+              ) * (1.0 / ${SIM}.0) * 1.5;
+              vec4 prev = texture2D(uPrev, vUv + flow);
+              float decay = 0.992;
+              vec4 inj = vec4(0.0);
+              vec2 c = vec2(0.5 + 0.25 * sin(uTime * 0.7), 0.5 + 0.25 * cos(uTime * 0.55));
+              float r = distance(vUv, c);
+              if (r < 0.04) inj = vec4(0.7, 0.2 + 0.5*sin(uTime), 0.95, 1.0);
+              gl_FragColor = prev * decay + inj * 0.4;
+            }`,
+        });
+        simScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), simMat));
+
+        // Display quad in the world (so the fluid is visible in-scene)
+        const fluidQuad = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.6, 1.6),
+          new THREE.MeshBasicMaterial({ map: rtA.texture, transparent: true, depthWrite: false }),
+        );
+        fluidQuad.name = "fluid-display";
+        fluidQuad.position.set(2.4, 1.6, -1.0);
+        fluidQuad.lookAt(0, 1, 0);
+        scene.add(fluidQuad);
+
+        // ---- 5) Post (render-to-FBO + bloom) -------------------------
+        const composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        composer.addPass(new UnrealBloomPass(
+          new THREE.Vector2(canvas.clientWidth, canvas.clientHeight), 0.6, 0.4, 0.85,
+        ));
+
+        // Vignette as a tiny ShaderPass — exercises one more program & FBO.
+        composer.addPass(new ShaderPass({
+          uniforms: { tDiffuse: { value: null }, uStrength: { value: 1.0 } },
+          vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`,
+          fragmentShader: `
+            precision highp float;
+            varying vec2 vUv;
+            uniform sampler2D tDiffuse;
+            uniform float uStrength;
+            void main() {
+              vec4 c = texture2D(tDiffuse, vUv);
+              float v = smoothstep(0.85, 0.2, distance(vUv, vec2(0.5)));
+              gl_FragColor = vec4(c.rgb * mix(1.0, v, uStrength), c.a);
+            }`,
+        }));
+
+        // ---- Tell the analyzer about the scene -----------------------
+        WebGLAnalyzer.attachScene(scene, {
+          label: "main", renderer,
+          models: [{ root: bag, label: "lowpoly-bag", source: "assets/lowpoly-bag.glb" }],
+        });
+
+        // ---- Resize --------------------------------------------------
+        function resize() {
+          const w = canvas.clientWidth, h = canvas.clientHeight;
+          if (canvas.width !== w * renderer.getPixelRatio() || canvas.height !== h * renderer.getPixelRatio()) {
+            renderer.setSize(w, h, false);
+            composer.setSize(w, h);
+            camera.aspect = w / h; camera.updateProjectionMatrix();
+          }
+        }
+        window.addEventListener("resize", resize);
+        resize();
+
+        // ---- Render loop ---------------------------------------------
+        const clock = new THREE.Clock();
+        function frame() {
+          const t = clock.getElapsedTime();
+          // animate instances
+          for (let i = 0; i < INSTANCES; i++) {
+            const c = cubeData[i];
+            const ang = c.a + t * c.sp;
+            dummy.position.set(Math.cos(ang) * c.r, c.y + Math.sin(t * 1.3 + i) * 0.05, Math.sin(ang) * c.r);
+            dummy.rotation.set(t * 0.8 + i, t * 0.5, 0);
+            dummy.updateMatrix();
+            cubes.setMatrixAt(i, dummy.matrix);
+          }
+          cubes.instanceMatrix.needsUpdate = true;
+
+          // animate particles a bit (gentle drift)
+          const pos = pGeom.attributes.position.array;
+          for (let i = 0; i < PARTICLES; i++) {
+            pos[i*3+1] += Math.sin(t + i) * 0.0006;
+            if (pos[i*3+1] > 3.2) pos[i*3+1] -= 2.8;
+          }
+          pGeom.attributes.position.needsUpdate = true;
+
+          // GPGPU sim step (read A, write B), then swap.
+          simMat.uniforms.uPrev.value = rtA.texture;
+          simMat.uniforms.uTime.value = t;
+          renderer.setRenderTarget(rtB);
+          renderer.render(simScene, simCam);
+          renderer.setRenderTarget(null);
+          [rtA, rtB] = [rtB, rtA];
+          fluidQuad.material.map = rtA.texture;
+
+          controls.update();
+          composer.render();
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      }
+    </script>
+  </body>
+</html>

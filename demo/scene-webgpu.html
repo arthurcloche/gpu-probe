@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>three.js webgpu stress scene · webgl-analyzer demo</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0a0a0a; color: #eee;
+        font: 13px ui-sans-serif, system-ui; }
+      header { padding: 8px 12px; border-bottom: 1px solid #222; }
+      header h1 { font-size: 14px; margin: 0; }
+      header p  { margin: 4px 0 0; color: #888; font-size: 12px; }
+      header code { background: #181818; padding: 2px 5px; border-radius: 3px; }
+      #scene { display: block; width: 100%; height: calc(100vh - 60px); }
+      #err { color: #f55; font: 12px ui-monospace, Menlo, monospace; padding: 12px; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>three.js · webgpu stress scene</h1>
+      <p>
+        WebGPURenderer · GLB load · instanced cubes · particles ·
+        <b>TSL compute</b> storage buffer (N-body-ish) · render-target ping-pong fluid.
+        Open the HUD's <code>Scene</code>, <code>Frame</code>, <code>GPU</code> tabs.
+      </p>
+    </header>
+    <canvas id="scene"></canvas>
+    <div id="err"></div>
+
+    <script src="../dist/webgl-analyzer.js"></script>
+    <script>
+      WebGLAnalyzer.install();
+      WebGLAnalyzer.showHUD();
+    </script>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "three":         "https://esm.sh/three@0.171.0/webgpu",
+        "three/tsl":     "https://esm.sh/three@0.171.0/tsl",
+        "three/addons/": "https://esm.sh/three@0.171.0/examples/jsm/"
+      }
+    }
+    </script>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { GLTFLoader }    from "three/addons/loaders/GLTFLoader.js";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import {
+        Fn, vec2, vec3, vec4, float, uv, uniform, time,
+        instanceIndex, instancedArray, texture as tslTexture,
+        positionLocal, sin, cos, mix, fract,
+      } from "three/tsl";
+
+      const errEl = document.getElementById("err");
+      try {
+        if (!navigator.gpu) throw new Error("WebGPU is not available in this browser.");
+        await main();
+      } catch (e) {
+        console.error(e);
+        errEl.textContent = (e.stack || String(e));
+      }
+
+      async function main() {
+        const canvas = document.getElementById("scene");
+        const renderer = new THREE.WebGPURenderer({
+          canvas, antialias: true, powerPreference: "high-performance",
+        });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        await renderer.init();
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x05060a);
+        scene.fog = new THREE.Fog(0x05060a, 8, 28);
+
+        const camera = new THREE.PerspectiveCamera(45, 16 / 9, 0.05, 100);
+        camera.position.set(3.6, 2.4, 4.2);
+
+        const controls = new OrbitControls(camera, canvas);
+        controls.target.set(0, 0.6, 0);
+        controls.enableDamping = true;
+
+        // ---- Lights --------------------------------------------------
+        scene.add(new THREE.HemisphereLight(0x88ccff, 0x111122, 0.6));
+        const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+        dir.position.set(4, 6, 3);
+        scene.add(dir);
+        const point = new THREE.PointLight(0xff66cc, 12, 14, 2);
+        point.position.set(-1.2, 1.4, 1.0);
+        scene.add(point);
+
+        // Ground (uses MeshStandardNodeMaterial under the hood automatically)
+        const ground = new THREE.Mesh(
+          new THREE.CircleGeometry(8, 48),
+          new THREE.MeshStandardMaterial({ color: 0x101015, roughness: 0.85, metalness: 0.05 }),
+        );
+        ground.rotation.x = -Math.PI / 2;
+        scene.add(ground);
+
+        // ---- 1) GLB --------------------------------------------------
+        const gltf = await new GLTFLoader().loadAsync("./assets/lowpoly-bag.glb");
+        const bag = gltf.scene;
+        bag.name = "lowpoly-bag";
+        const box = new THREE.Box3().setFromObject(bag);
+        const size = new THREE.Vector3(); box.getSize(size);
+        const targetH = 1.4;
+        const scale = targetH / Math.max(size.y, 1e-3);
+        bag.scale.setScalar(scale);
+        bag.position.y = -box.min.y * scale;
+        scene.add(bag);
+
+        // ---- 2) Instanced cubes orbiting -----------------------------
+        const INSTANCES = 1500;
+        const cubeGeom = new THREE.BoxGeometry(0.05, 0.05, 0.05);
+        const cubeMat  = new THREE.MeshStandardMaterial({
+          color: 0x66ddff, roughness: 0.4, metalness: 0.6,
+        });
+        const cubes = new THREE.InstancedMesh(cubeGeom, cubeMat, INSTANCES);
+        cubes.name = "orbiting-cubes";
+        const dummy = new THREE.Object3D();
+        const cubeData = new Array(INSTANCES);
+        for (let i = 0; i < INSTANCES; i++) {
+          const r  = 1.6 + Math.random() * 2.0;
+          const a  = Math.random() * Math.PI * 2;
+          const y  = (Math.random() - 0.5) * 1.6 + 1.2;
+          const sp = (Math.random() * 0.5 + 0.2) * (Math.random() < 0.5 ? -1 : 1);
+          cubeData[i] = { r, a, y, sp };
+        }
+        scene.add(cubes);
+
+        // ---- 3) GPU-driven particle swarm ----------------------------
+        // The whole point of WebGPU: a real compute shader that owns the
+        // particle state in a storage buffer, then a render pass that
+        // draws instanced quads reading the same buffer as input.
+        const PARTICLES = 8192;
+
+        // instancedArray creates a writable storage buffer of N items of the
+        // given TSL type. .element(index) returns a writable node.
+        const positionBuffer = instancedArray(PARTICLES, "vec4");
+        const velocityBuffer = instancedArray(PARTICLES, "vec4");
+
+        // Init compute — runs once.
+        const initCompute = Fn(() => {
+          const i = instanceIndex;
+          // pseudo-random
+          const r1 = fract(sin(float(i).mul(12.9898)).mul(43758.5453));
+          const r2 = fract(sin(float(i).mul(78.233 )).mul(43758.5453));
+          const r3 = fract(sin(float(i).mul(45.164 )).mul(43758.5453));
+          const r4 = fract(sin(float(i).mul(94.673 )).mul(43758.5453));
+          const px = r1.sub(0.5).mul(4.0);
+          const py = r2.mul(2.4).add(0.4);
+          const pz = r3.sub(0.5).mul(4.0);
+          positionBuffer.element(i).assign(vec4(px, py, pz, r4));
+          velocityBuffer.element(i).assign(vec4(0, 0, 0, 0));
+        })().compute(PARTICLES);
+
+        // Per-frame update — gravity-ish toward origin + swirl.
+        const updateCompute = Fn(() => {
+          const i = instanceIndex;
+          const p = positionBuffer.element(i);
+          const v = velocityBuffer.element(i);
+          // toward (0, 1, 0) with a tangential swirl
+          const center = vec3(0, 1.0, 0);
+          const toCenter = center.sub(p.xyz);
+          const swirl = vec3(toCenter.z.negate(), float(0), toCenter.x).mul(0.6);
+          const accel = toCenter.mul(0.6).add(swirl).mul(0.016);
+          v.xyz.assign(v.xyz.mul(0.985).add(accel));
+          p.xyz.assign(p.xyz.add(v.xyz.mul(0.05)));
+          // life advance + wrap
+          p.w.assign(fract(p.w.add(0.002)));
+        })().compute(PARTICLES);
+
+        await renderer.computeAsync(initCompute);
+
+        // Render the particles as instanced billboards using a NodeMaterial
+        // that reads from the storage buffer via positionNode.
+        const partGeom = new THREE.PlaneGeometry(0.04, 0.04);
+        const partMesh = new THREE.InstancedMesh(
+          partGeom,
+          new THREE.MeshBasicNodeMaterial({
+            transparent: true, depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+          PARTICLES,
+        );
+        partMesh.name = "compute-particles";
+        partMesh.frustumCulled = false;
+        // positionLocal + per-instance offset from the storage buffer.
+        const inst = positionBuffer.element(instanceIndex);
+        partMesh.material.positionNode = positionLocal.add(inst.xyz);
+        // color = HSL-like ramp from life
+        const life = inst.w;
+        partMesh.material.colorNode = vec4(
+          mix(float(0.3), float(1.0), life),
+          mix(float(0.5), float(0.2), life),
+          mix(float(1.0), float(0.6), life),
+          float(0.85),
+        );
+        scene.add(partMesh);
+
+        // ---- 4) Fluid ping-pong (render-target) ----------------------
+        // Mirror of the WebGL demo's fluid sim. Two RGBA float render
+        // targets, swapped each frame. Display the current state on a
+        // quad in the world.
+        const SIM = 256;
+        const rtOpts = {
+          type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+          minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+          depthBuffer: false, stencilBuffer: false,
+        };
+        let rtA = new THREE.RenderTarget(SIM, SIM, rtOpts);
+        let rtB = new THREE.RenderTarget(SIM, SIM, rtOpts);
+        rtA.texture.name = "fluid.A";
+        rtB.texture.name = "fluid.B";
+
+        // TSL closures bake the texture reference at compile time, so for a
+        // ping-pong we keep two materials — one reading A, one reading B —
+        // and alternate which scene is rendered each frame.
+        const simCam   = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const simQuadGeom = new THREE.PlaneGeometry(2, 2);
+        const makeSimMat = (srcTex) => {
+          const m = new THREE.NodeMaterial();
+          m.colorNode = Fn(() => {
+            const u = uv();
+            const t = time;
+            const flow = vec2(
+              sin(u.y.mul(6.2831).add(t.mul(0.6))),
+              cos(u.x.mul(6.2831).add(t.mul(0.4))),
+            ).mul(1.5 / SIM);
+            const prev = tslTexture(srcTex, u.add(flow));
+            const decay = float(0.992);
+            const c = vec2(
+              float(0.5).add(sin(t.mul(0.7)).mul(0.25)),
+              float(0.5).add(cos(t.mul(0.55)).mul(0.25)),
+            );
+            const r = u.distance(c);
+            const inj = vec4(
+              float(0.7),
+              float(0.2).add(sin(t).mul(0.5)),
+              float(0.95),
+              float(1.0),
+            ).mul(r.lessThan(0.04).select(0.4, 0.0));
+            return prev.mul(decay).add(inj);
+          })();
+          return m;
+        };
+        const simSceneA = new THREE.Scene();
+        const simSceneB = new THREE.Scene();
+        simSceneA.add(new THREE.Mesh(simQuadGeom, makeSimMat(rtA.texture)));
+        simSceneB.add(new THREE.Mesh(simQuadGeom, makeSimMat(rtB.texture)));
+
+        const fluidQuad = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.6, 1.6),
+          new THREE.MeshBasicMaterial({ map: rtA.texture, transparent: true, depthWrite: false }),
+        );
+        fluidQuad.name = "fluid-display";
+        fluidQuad.position.set(2.4, 1.6, -1.0);
+        fluidQuad.lookAt(0, 1, 0);
+        scene.add(fluidQuad);
+
+        // ---- Tell the analyzer about the scene -----------------------
+        WebGLAnalyzer.attachScene(scene, {
+          label: "main", renderer,
+          models: [{ root: bag, label: "lowpoly-bag", source: "assets/lowpoly-bag.glb" }],
+        });
+
+        // ---- Resize --------------------------------------------------
+        function resize() {
+          const w = canvas.clientWidth, h = canvas.clientHeight;
+          renderer.setSize(w, h, false);
+          camera.aspect = w / h; camera.updateProjectionMatrix();
+        }
+        window.addEventListener("resize", resize);
+        resize();
+
+        // ---- Render loop ---------------------------------------------
+        const clock = new THREE.Clock();
+        let readingFromA = true;
+        function frame() {
+          const t = clock.getElapsedTime();
+          // animate instances (CPU-side as in WebGL demo, for parity)
+          for (let i = 0; i < INSTANCES; i++) {
+            const c = cubeData[i];
+            const ang = c.a + t * c.sp;
+            dummy.position.set(Math.cos(ang) * c.r, c.y + Math.sin(t * 1.3 + i) * 0.05, Math.sin(ang) * c.r);
+            dummy.rotation.set(t * 0.8 + i, t * 0.5, 0);
+            dummy.updateMatrix();
+            cubes.setMatrixAt(i, dummy.matrix);
+          }
+          cubes.instanceMatrix.needsUpdate = true;
+
+          // Compute pass — particle update.
+          renderer.computeAsync(updateCompute);
+
+          // Fluid sim step. Toggle which scene reads (A or B) and which RT we
+        // render INTO; the display quad always shows the most recently
+        // written target.
+          renderer.setRenderTarget(readingFromA ? rtB : rtA);
+          renderer.render(readingFromA ? simSceneA : simSceneB, simCam);
+          renderer.setRenderTarget(null);
+          fluidQuad.material.map = (readingFromA ? rtB : rtA).texture;
+          readingFromA = !readingFromA;
+
+          controls.update();
+          renderer.render(scene, camera);
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>webgl-analyzer demo</title>
+    <style>
+      html, body { margin: 0; background: #111; color: #eee; font: 14px ui-sans-serif, system-ui; }
+      body { padding: 16px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1100px; }
+      .cell h2 { font-size: 13px; margin: 0 0 6px; color: #ccc; }
+      .cell p  { margin: 4px 0 8px; color: #888; font-size: 12px; }
+      canvas { display: block; background: #000; border: 1px solid #333; width: 100%; height: auto; }
+      code { background: #222; padding: 2px 4px; border-radius: 3px; }
+      h1 { font-size: 16px; margin: 0 0 6px; }
+      .lead { color: #aaa; margin: 0 0 16px; }
+    </style>
+  </head>
+  <body>
+    <h1>webgl-analyzer demo</h1>
+    <p class="lead">Two independent WebGL2 canvases. Use the <b>context</b> dropdown in the HUD to switch between them — the selected one gets a blue outline.</p>
+    <p style="margin: -8px 0 16px; color:#666; font-size:12px;">
+      Other demos:
+      <a href="./webgpu.html" style="color:#0bf;">webgpu (raw)</a> ·
+      <a href="./scene-webgl.html" style="color:#0bf;">three.js webgl2 stress scene</a> ·
+      <a href="./scene-webgpu.html" style="color:#0bf;">three.js webgpu stress scene</a>
+    </p>
+
+    <div class="grid">
+      <div class="cell">
+        <h2>scene A — indexed grid → FBO → post</h2>
+        <p>40×40 grid (3200 triangles), procedural texture, render-to-FBO, post pass.</p>
+        <canvas id="sceneA" width="480" height="320"></canvas>
+      </div>
+      <div class="cell">
+        <h2>scene B — instanced points</h2>
+        <p>Single program, instanced draw of 1024 points orbiting on the screen.</p>
+        <canvas id="sceneB" width="480" height="320"></canvas>
+      </div>
+    </div>
+
+    <!-- Load analyzer BEFORE the app creates its WebGL contexts. -->
+    <script src="../dist/webgl-analyzer.js"></script>
+    <script>
+      WebGLAnalyzer.install();
+      WebGLAnalyzer.showHUD();
+    </script>
+
+    <!-- ============== Scene A ============== -->
+    <script>
+    (() => {
+      const canvas = document.getElementById("sceneA");
+      const gl = canvas.getContext("webgl2");
+      if (!gl) return;
+
+      function compile(t, s) { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+        if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; }
+      function program(vs, fs) { const p = gl.createProgram();
+        gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+        gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+        return p; }
+
+      const progA = program(
+        `#version 300 es
+         in vec2 aPos; in vec2 aUv;
+         uniform float uTime; out vec2 vUv;
+         void main(){
+           float c=cos(uTime), s=sin(uTime);
+           mat2 R=mat2(c,-s,s,c);
+           vUv=aUv;
+           gl_Position=vec4(R*aPos,0.0,1.0);
+         }`,
+        `#version 300 es
+         precision highp float;
+         uniform sampler2D uTex; uniform float uTime;
+         in vec2 vUv; out vec4 frag;
+         void main(){
+           vec3 c=texture(uTex, vUv+0.1*vec2(cos(uTime),sin(uTime))).rgb;
+           frag=vec4(c,1.0);
+         }`);
+
+      const progB = program(
+        `#version 300 es
+         in vec2 aPos; out vec2 vUv;
+         void main(){ vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.0,1.0); }`,
+        `#version 300 es
+         precision highp float;
+         uniform sampler2D uSrc; uniform float uTime;
+         in vec2 vUv; out vec4 frag;
+         void main(){
+           vec3 c=texture(uSrc, vUv).rgb;
+           c += 0.05*sin(uTime + vUv.y*40.0);
+           frag=vec4(c,1.0);
+         }`);
+
+      const N = 40, pos=[], uv=[], idx=[];
+      for (let y=0; y<=N; y++) for (let x=0; x<=N; x++) {
+        pos.push((x/N)*2-1, (y/N)*2-1); uv.push(x/N, y/N);
+      }
+      for (let y=0; y<N; y++) for (let x=0; x<N; x++) {
+        const a=y*(N+1)+x, b=a+1, c=a+(N+1), d=c+1;
+        idx.push(a,b,c, b,d,c);
+      }
+
+      const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+      const vboPos = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vboPos);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+      const vboUv = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vboUv);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uv), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,2,gl.FLOAT,false,0,0);
+      const ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+
+      const fsVao = gl.createVertexArray(); gl.bindVertexArray(fsVao);
+      const fsBuf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, fsBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+      const c2d = document.createElement("canvas"); c2d.width=c2d.height=256;
+      const cx = c2d.getContext("2d");
+      const grd = cx.createLinearGradient(0,0,256,256);
+      grd.addColorStop(0,"#0bf"); grd.addColorStop(1,"#f0c");
+      cx.fillStyle=grd; cx.fillRect(0,0,256,256);
+      cx.fillStyle="rgba(0,0,0,0.4)";
+      for (let i=0; i<32; i++) cx.fillRect((i*17)%256, (i*23)%256, 24, 24);
+
+      const srcTex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, srcTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c2d);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+      const fboTex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, fboTex);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, canvas.width, canvas.height);
+      const depthRb = gl.createRenderbuffer();
+      gl.bindRenderbuffer(gl.RENDERBUFFER, depthRb);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, canvas.width, canvas.height);
+      const fbo = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthRb);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+      const uTimeA = gl.getUniformLocation(progA, "uTime");
+      const uTexA  = gl.getUniformLocation(progA, "uTex");
+      const uTimeB = gl.getUniformLocation(progB, "uTime");
+      const uSrcB  = gl.getUniformLocation(progB, "uSrc");
+
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      function frame(t) {
+        const time = t * 0.001;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.clearColor(0.05,0.05,0.08,1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.useProgram(progA);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, srcTex);
+        gl.uniform1i(uTexA, 0); gl.uniform1f(uTimeA, time);
+        gl.bindVertexArray(vao);
+        gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(progB);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fboTex);
+        gl.uniform1i(uSrcB, 0); gl.uniform1f(uTimeB, time);
+        gl.bindVertexArray(fsVao);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    })();
+    </script>
+
+    <!-- ============== Scene B ============== -->
+    <script>
+    (() => {
+      const canvas = document.getElementById("sceneB");
+      const gl = canvas.getContext("webgl2");
+      if (!gl) return;
+
+      function compile(t, s) { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+        if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; }
+      function program(vs, fs) { const p = gl.createProgram();
+        gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+        gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+        return p; }
+
+      const prog = program(
+        `#version 300 es
+         layout(location=0) in vec2 aQuad;
+         layout(location=1) in vec3 aSeed; // x,y,phase
+         uniform float uTime;
+         out vec3 vCol;
+         void main(){
+           float a = aSeed.z + uTime * (0.4 + aSeed.x);
+           vec2 center = vec2(cos(a), sin(a)) * (0.2 + 0.6*aSeed.y);
+           vec2 pos = center + aQuad * 0.02;
+           vCol = 0.5 + 0.5*vec3(sin(a), cos(a*1.3), sin(a*0.7));
+           gl_Position = vec4(pos, 0.0, 1.0);
+         }`,
+        `#version 300 es
+         precision highp float;
+         in vec3 vCol; out vec4 frag;
+         void main(){ frag = vec4(vCol, 1.0); }`);
+
+      const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+
+      // quad geometry (instance-shared)
+      const quadBuf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        -1,-1,  1,-1,  -1, 1,
+        -1, 1,  1,-1,   1, 1,
+      ]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+      // per-instance seeds
+      const N = 1024, seeds = new Float32Array(N * 3);
+      for (let i = 0; i < N; i++) {
+        seeds[i*3 + 0] = Math.random();
+        seeds[i*3 + 1] = Math.random();
+        seeds[i*3 + 2] = Math.random() * Math.PI * 2;
+      }
+      const seedBuf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, seedBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, seeds, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribDivisor(1, 1);
+
+      const uTime = gl.getUniformLocation(prog, "uTime");
+      gl.viewport(0, 0, canvas.width, canvas.height);
+
+      function frame(t) {
+        gl.clearColor(0.02, 0.02, 0.03, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(prog);
+        gl.uniform1f(uTime, t * 0.001);
+        gl.bindVertexArray(vao);
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, N);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    })();
+    </script>
+  </body>
+</html>

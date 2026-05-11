@@ -1,0 +1,15 @@
+{
+  "name": "webgl-analyzer",
+  "version": "0.2.0",
+  "description": "Drop-in WebGL2 scene & shader analyzer. Works as a bookmarklet or as a static script.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}
