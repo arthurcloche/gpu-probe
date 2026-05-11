@@ -52,6 +52,14 @@ function ensureStyles() {
       color: #666; text-transform: uppercase; font-size: 10px;
       letter-spacing: 0.5px; margin: 10px 0 4px; padding: 0 6px;
     }
+    .wgla-sect.collapsible {
+      cursor: pointer; user-select: none; display: flex;
+      align-items: center; gap: 6px; padding: 2px 6px;
+      border-radius: 3px;
+    }
+    .wgla-sect.collapsible:hover { background: rgba(255,255,255,0.04); color: #aaa; }
+    .wgla-sect .caret { color: #555; font-size: 9px; width: 8px; display: inline-block; }
+    .wgla-sect .count { color: #0bf; margin-left: auto; text-transform: none; font-size: 10px; }
     .wgla-empty { color: #666; padding: 8px 6px; }
     .wgla-btn {
       background: #181818; color: #ddd;
@@ -207,17 +215,43 @@ const MESH_KIND_GLYPH = {
 // for items no longer in the set are removed. After each diff, rows are
 // reordered in the DOM to match item order. Click targets survive updates.
 function makeKeyedList(parent, opts) {
-  if (opts.title)   parent.appendChild(section(opts.title));
-  if (opts.headers) parent.appendChild(tableHeader(opts.cols, opts.headers));
+  let countSpan = null, contentWrap = null, collapsed = false;
+  if (opts.collapsible && opts.title) {
+    const h = el("div", null);
+    h.className = "wgla-sect collapsible";
+    const caret = el("span", null, "▸"); caret.className = "caret";
+    const lbl = el("span", null, opts.title);
+    countSpan = el("span", null, "0"); countSpan.className = "count";
+    h.append(caret, lbl, countSpan);
+    parent.appendChild(h);
+    contentWrap = el("div");
+    parent.appendChild(contentWrap);
+    collapsed = opts.defaultCollapsed !== false;
+    const apply = () => {
+      contentWrap.style.display = collapsed ? "none" : "";
+      caret.textContent = collapsed ? "▸" : "▾";
+    };
+    apply();
+    h.addEventListener("click", () => { collapsed = !collapsed; apply(); diff(); });
+    if (opts.headers) contentWrap.appendChild(tableHeader(opts.cols, opts.headers));
+  } else {
+    if (opts.title)   parent.appendChild(section(opts.title));
+    if (opts.headers) parent.appendChild(tableHeader(opts.cols, opts.headers));
+    contentWrap = parent;
+  }
   const container = el("div");
   const empty = el("div", null, opts.emptyText || "(none)"); empty.className = "wgla-empty";
-  parent.appendChild(container);
-  parent.appendChild(empty);
+  contentWrap.appendChild(container);
+  contentWrap.appendChild(empty);
 
   const rowMap = new Map();
 
   function diff() {
     const items = opts.getItems() || [];
+    if (countSpan) countSpan.textContent = String(items.length);
+    // When collapsed, skip per-row DOM diff to avoid pointless work; we still
+    // refresh the count above so the header stays informative.
+    if (collapsed) return;
     empty.style.display = items.length ? "none" : "";
     const seen = new Set();
     for (const item of items) {
@@ -346,7 +380,11 @@ export function mountHUD(analyzers) {
   // body
   const body = el("div", {
     padding: "6px 0", overflowY: "auto", flex: "1 1 auto", minHeight: "0",
+    overscrollBehavior: "contain",
   });
+  // Stop wheel events from bubbling to the page so the HUD scrolls
+  // independently even when the underlying page is also scrollable.
+  body.addEventListener("wheel", (e) => { e.stopPropagation(); }, { passive: true });
 
   // footer
   const footer = el("div", {
@@ -1009,6 +1047,7 @@ export function mountHUD(analyzers) {
     // Buffers
     refreshFns.push(makeKeyedList(r, {
       title: "Buffers",
+      collapsible: true,
       cols: "60px 1fr 60px 80px",
       headers: [
         { label: "id" }, { label: "target" },
@@ -1048,6 +1087,7 @@ export function mountHUD(analyzers) {
     // Textures
     refreshFns.push(makeKeyedList(r, {
       title: "Textures",
+      collapsible: true,
       cols: "60px 1fr 80px 80px",
       headers: [
         { label: "id" }, { label: "target" },
@@ -1087,6 +1127,7 @@ export function mountHUD(analyzers) {
     // Framebuffers
     refreshFns.push(makeKeyedList(r, {
       title: "Framebuffers",
+      collapsible: true,
       cols: "60px 1fr",
       headers: [{ label: "id" }, { label: "attachments" }],
       emptyText: "(none)",
@@ -1120,6 +1161,7 @@ export function mountHUD(analyzers) {
     // Renderbuffers
     refreshFns.push(makeKeyedList(r, {
       title: "Renderbuffers",
+      collapsible: true,
       cols: "60px 1fr 80px 50px",
       headers: [
         { label: "id" }, { label: "format" },
@@ -1495,8 +1537,17 @@ export function mountHUD(analyzers) {
   function buildSceneTab() {
     const r = el("div");
     if (!scenes || !scenes.scenes.length) {
-      const e = el("div", null, "no scene attached  —  call GPUProbe.attachScene(scene)");
-      e.className = "wgla-empty"; r.appendChild(e);
+      const e = el("div");
+      e.className = "wgla-empty";
+      e.style.padding = "12px 8px";
+      e.style.lineHeight = "1.6";
+      e.innerHTML =
+        "no scene attached.<br><br>" +
+        "if this page uses three.js or babylon, open devtools and run:<br>" +
+        "<code style='color:#0bf'>GPUProbe.attachScene(yourScene)</code><br><br>" +
+        "for gltf/glb roots:<br>" +
+        "<code style='color:#0bf'>GPUProbe.attachModel(gltf.scene, {source:'foo.glb'})</code>";
+      r.appendChild(e);
       return { root: r };
     }
 
@@ -1838,7 +1889,7 @@ export function mountHUD(analyzers) {
         row("Σ useProgram", refs.uses),
       );
 
-      const info0 = extractProgram(rec.gl, resource, { id: d.id });
+      const info0 = extractProgram(rec.gl, resource, { id: d.id }, rec);
       if (info0.infoLog) {
         r.appendChild(section("infoLog"));
         const log = el("pre", null, info0.infoLog); log.className = "wgla-pre"; r.appendChild(log);
@@ -1873,7 +1924,7 @@ export function mountHUD(analyzers) {
           id: d.id,
           drawCalls: rec.drawCalls.get(resource) || 0,
           useProgramCount: rec.useProgramCount.get(resource) || 0,
-        });
+        }, rec);
         refs.active.textContent    = info.active ? "yes" : "no";
         refs.linked.textContent    = info.linked ? "yes" : "no";
         refs.validated.textContent = info.validated ? "yes" : "no";
@@ -2151,10 +2202,13 @@ export function mountHUD(analyzers) {
     tabButtons.resources.style.display = onlyGPU ? "none" : "";
     if (onlyGPU && (state.tab === "programs" || state.tab === "resources")) switchTab("gpu");
     if (!gpuN && state.tab === "gpu") switchTab("live");
-    // Scene tab only appears when a Three.js scene has been attached.
+    // Scene tab: show whenever WebGL is present (Three.js/Babylon are likely
+    // candidates), even with zero attached scenes — the empty state explains
+    // how to call attachScene(). Hide when only WebGPU exists (rare for scene
+    // engines today).
     const sceneN = scenes?.scenes?.length || 0;
-    tabButtons.scene.style.display = sceneN ? "" : "none";
-    if (!sceneN && state.tab === "scene") switchTab("live");
+    tabButtons.scene.style.display = (sceneN || glN) ? "" : "none";
+    if (!sceneN && !glN && state.tab === "scene") switchTab("live");
     // Rerender if the set of contexts changed — most importantly so the Live
     // tab can sprout its WebGPU section once a device is created post-mount.
     const sig = `${glN}|${gpuN}|${sceneN}`;

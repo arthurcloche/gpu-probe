@@ -24,26 +24,59 @@ function safeUniformValue(gl, program, location) {
   }
 }
 
-export function extractShader(gl, shader) {
-  if (!shader) return null;
-  const source = gl.getShaderSource(shader);
+export function extractShader(gl, shader, cached) {
+  if (!shader && !cached) return null;
+  // Prefer live GL state; fall back to whatever we cached at compile time.
+  // After Three.js (and other engines) detach shaders post-link, the GL calls
+  // below either return empty or throw on a deleted shader — that's when the
+  // cached snapshot is the only source of truth.
+  let type = cached?.type || null;
+  let compiled = cached?.compiled ?? false;
+  let deleted = false;
+  let source = cached?.source || "";
+  let infoLog = cached?.infoLog || "";
+  if (shader) {
+    // Only OVERWRITE cached values when GL actually has a useful answer. Once
+    // the engine deletes a shader (Three.js does this right after linking),
+    // getShaderParameter returns null on it — we must not clobber the cached
+    // type/compiled with the dead-shader response.
+    try {
+      const t = gl.getShaderParameter(shader, gl.SHADER_TYPE);
+      if (t === gl.VERTEX_SHADER) type = "VERTEX_SHADER";
+      else if (t === gl.FRAGMENT_SHADER) type = "FRAGMENT_SHADER";
+    } catch (_) {}
+    try {
+      const c = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+      if (c !== null && c !== undefined) compiled = !!c;
+    } catch (_) {}
+    try {
+      const d = gl.getShaderParameter(shader, gl.DELETE_STATUS);
+      if (d !== null && d !== undefined) deleted = !!d;
+    } catch (_) {}
+    try { const s = gl.getShaderSource(shader); if (s) source = s; } catch (_) {}
+    try { const l = gl.getShaderInfoLog(shader); if (l) infoLog = l; } catch (_) {}
+  }
   return {
-    type: shaderTypeName(gl, shader),
-    compiled: !!gl.getShaderParameter(shader, gl.COMPILE_STATUS),
-    deleted: !!gl.getShaderParameter(shader, gl.DELETE_STATUS),
-    sourceLength: source ? source.length : 0,
-    source: source || "",
-    infoLog: gl.getShaderInfoLog(shader) || "",
+    type: type || "UNKNOWN",
+    compiled, deleted,
+    sourceLength: source.length,
+    source,
+    infoLog,
   };
 }
 
-export function extractProgram(gl, program, meta = {}) {
+export function extractProgram(gl, program, meta = {}, record = null) {
   const linked = !!gl.getProgramParameter(program, gl.LINK_STATUS);
   const validated = !!gl.getProgramParameter(program, gl.VALIDATE_STATUS);
   const active = gl.getParameter(gl.CURRENT_PROGRAM) === program;
 
   const attached = gl.getAttachedShaders(program) || [];
-  const shaders = attached.map((s) => extractShader(gl, s));
+  // Union of currently-attached shaders and shaders we saw via attachShader
+  // before the engine detached them post-link.
+  const seen = new Set(attached);
+  const recordedSet = record?.programShaders?.get(program);
+  if (recordedSet) for (const s of recordedSet) seen.add(s);
+  const shaders = [...seen].map((s) => extractShader(gl, s, record?.shaderInfo?.get(s)));
 
   const uniforms = [];
   const numUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS) || 0;
@@ -167,7 +200,7 @@ export function extractContext(gl, record) {
         id: idFor(record, p, "p?"),
         drawCalls: record.drawCalls.get(p) || 0,
         useProgramCount: record.useProgramCount.get(p) || 0,
-      })
+      }, record)
     );
   }
 

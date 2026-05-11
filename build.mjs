@@ -51,7 +51,7 @@ async function build() {
     minify: true,
   });
 
-  // Bookmarklet — minified
+  // Bookmarklet — minified (self-contained, all code inlined)
   const bkmOut = path.join(outdir, "bookmarklet.js");
   await esbuild.build({
     ...commonBkm,
@@ -70,12 +70,29 @@ async function build() {
     encodeURIComponent(`(function(){${cleaned};void 0;})();`);
   await fs.writeFile(path.join(outdir, "bookmarklet.url.txt"), url);
 
+  // Bookmarklet — CDN stub (tiny, fetches webgl-analyzer.min.js from jsDelivr)
+  const bkmCdnOut = path.join(outdir, "bookmarklet-cdn.js");
+  await esbuild.build({
+    entryPoints: ["src/bookmarklet-cdn.js"],
+    bundle: true,
+    format: "iife",
+    target: ["es2020"],
+    outfile: bkmCdnOut,
+    minify: true,
+    logLevel: "info",
+  });
+  const cdnCode = (await fs.readFile(bkmCdnOut, "utf8")).replace(/^\/\*.*?\*\/\s*/s, "");
+  const cdnUrl = "javascript:" + encodeURIComponent(cdnCode + ";void 0;");
+  await fs.writeFile(path.join(outdir, "bookmarklet-cdn.url.txt"), cdnUrl);
+
   const stats = await Promise.all(
     [
       "gpu-probe.js",
       "gpu-probe.min.js",
       "bookmarklet.js",
       "bookmarklet.url.txt",
+      "bookmarklet-cdn.js",
+      "bookmarklet-cdn.url.txt",
     ].map(async (f) => {
       const p = path.join(outdir, f);
       const s = await fs.stat(p);

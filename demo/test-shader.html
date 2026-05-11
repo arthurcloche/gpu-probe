@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>shader-extract test</title></head>
+<body>
+<canvas id="c" width="64" height="64"></canvas>
+<pre id="out" style="font:11px monospace;background:#111;color:#cde;padding:8px"></pre>
+<script src="../dist/webgl-analyzer.js"></script>
+<script>
+WebGLAnalyzer.install();
+const out = (s) => document.getElementById("out").textContent += s + "\n";
+
+const gl = document.getElementById("c").getContext("webgl2");
+
+const vs = `#version 300 es
+in vec3 position;
+void main() { gl_Position = vec4(position, 1.0); }`;
+
+const fs = `#version 300 es
+precision highp float;
+out vec4 frag;
+void main() { frag = vec4(1.0, 0.5, 0.2, 1.0); }`;
+
+const v = gl.createShader(gl.VERTEX_SHADER);
+gl.shaderSource(v, vs); gl.compileShader(v);
+const f = gl.createShader(gl.FRAGMENT_SHADER);
+gl.shaderSource(f, fs); gl.compileShader(f);
+
+const p = gl.createProgram();
+gl.attachShader(p, v); gl.attachShader(p, f);
+gl.linkProgram(p);
+
+// Simulate Three.js: detach and delete shaders after linking.
+gl.detachShader(p, v); gl.detachShader(p, f);
+gl.deleteShader(v); gl.deleteShader(f);
+
+const attached = gl.getAttachedShaders(p) || [];
+out(`getAttachedShaders after delete: ${attached.length}`);
+
+const rec = WebGLAnalyzer.webgl.records.get(gl);
+out(`record.programShaders.size: ${rec.programShaders.size}`);
+out(`record.shaderInfo.size:    ${rec.shaderInfo.size}`);
+const set = rec.programShaders.get(p);
+out(`set for program: ${set ? set.size : "—"}`);
+if (set) {
+  for (const s of set) {
+    const info = rec.shaderInfo.get(s);
+    out(`  shader ${info?.type}: source=${info?.source.length} chars, compiled=${info?.compiled}`);
+  }
+}
+
+const data = WebGLAnalyzer.data();
+const prog = data.webgl.contexts[0].programs[0];
+out(`\nextractProgram shaders.length: ${prog.shaders.length}`);
+for (const sh of prog.shaders) {
+  out(`  ${sh.type}: ${sh.sourceLength} chars, compiled=${sh.compiled}`);
+}
+</script>
+</body>
+</html>

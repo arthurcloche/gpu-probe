@@ -120,12 +120,60 @@ export function patchContext(gl, record) {
 
   wrap(gl, "createShader", (orig, args) => {
     const s = orig(...args);
-    if (s) { record.shaders.add(s); idOf(record, s, "s"); }
+    if (s) {
+      record.shaders.add(s);
+      idOf(record, s, "s");
+      const t = args[0];
+      const typeName =
+        t === gl.VERTEX_SHADER ? "VERTEX_SHADER" :
+        t === gl.FRAGMENT_SHADER ? "FRAGMENT_SHADER" : `UNKNOWN(${t})`;
+      record.shaderInfo.set(s, { type: typeName, source: "", compiled: false, infoLog: "" });
+    }
     return s;
+  }, originals);
+
+  wrap(gl, "shaderSource", (orig, args) => {
+    const [shader, source] = args;
+    const ret = orig(...args);
+    if (shader && record.shaderInfo.has(shader)) {
+      record.shaderInfo.get(shader).source = typeof source === "string" ? source : "";
+    }
+    return ret;
+  }, originals);
+
+  wrap(gl, "compileShader", (orig, args) => {
+    const [shader] = args;
+    const ret = orig(...args);
+    if (shader && record.shaderInfo.has(shader)) {
+      const info = record.shaderInfo.get(shader);
+      try {
+        info.compiled = !!gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+        info.infoLog = gl.getShaderInfoLog(shader) || "";
+        if (!info.source) info.source = gl.getShaderSource(shader) || "";
+      } catch (_) {}
+    }
+    return ret;
+  }, originals);
+
+  wrap(gl, "attachShader", (orig, args) => {
+    const [program, shader] = args;
+    const ret = orig(...args);
+    if (program && shader) {
+      let set = record.programShaders.get(program);
+      if (!set) { set = new Set(); record.programShaders.set(program, set); }
+      set.add(shader);
+    }
+    return ret;
+  }, originals);
+
+  wrap(gl, "detachShader", (orig, args) => {
+    // Do NOT remove the association — we still want to show the source post-link.
+    return orig(...args);
   }, originals);
 
   wrap(gl, "deleteShader", (orig, args) => {
     record.shaders.delete(args[0]); record.ids.delete(args[0]);
+    // keep shaderInfo so the GLSL is still viewable from program detail.
     return orig(...args);
   }, originals);
 
@@ -135,6 +183,7 @@ export function patchContext(gl, record) {
     record.drawCalls.delete(p);
     record.useProgramCount.delete(p);
     record.ids.delete(p);
+    record.programShaders.delete(p);
     return orig(...args);
   }, originals);
 

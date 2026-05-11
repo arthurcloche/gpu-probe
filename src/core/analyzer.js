@@ -28,6 +28,13 @@ function makeRecord(gl, canvas, version) {
     // resources
     programs: new Set(),
     shaders: new Set(),
+    // per-shader cached info (source, type, compile status, infoLog) — captured
+    // at shaderSource()/compileShader() time so we can still surface the GLSL
+    // even after the engine detaches shaders post-link (Three.js does this).
+    shaderInfo: new Map(),       // shader -> { type, source, compiled, infoLog }
+    // program -> Set<shader> association captured at attachShader() time, used
+    // as a fallback when getAttachedShaders() returns empty post-link.
+    programShaders: new Map(),
     buffers: new Map(),           // buffer -> { target, size, usage }
     textures: new Map(),          // texture -> { target, width, height, depth, internalFormat, format, type, mipmap }
     framebuffers: new Map(),      // fb -> { attachments: {[name]: {...}} }
