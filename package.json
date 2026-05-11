@@ -1,7 +1,11 @@
 {
-  "name": "webgl-analyzer",
+  "name": "gpu-probe",
   "version": "0.2.0",
-  "description": "Drop-in WebGL2 scene & shader analyzer. Works as a bookmarklet or as a static script.",
+  "description": "Drop-in WebGL2 + WebGPU scene & shader analyzer. Works as a bookmarklet or as a static script.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shopify-playground/gpu-probe.git"
+  },
   "private": true,
   "type": "module",
   "scripts": {

@@ -1,7 +1,7 @@
 // Library entry. Exposes `window.WebGLAnalyzer` (and `window.WebGPUAnalyzer`
 // when the platform supports it).
 //
-//   <script src="webgl-analyzer.js"></script>
+//   <script src="gpu-probe.js"></script>
 //   <script>
 //     WebGLAnalyzer.install();   // patches getContext (webgl, webgl2, webgpu)
 //     WebGLAnalyzer.showHUD();   // tabbed live panel

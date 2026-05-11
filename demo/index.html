@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>webgl-analyzer demo</title>
+    <title>gpu-probe demo</title>
     <style>
       html, body { margin: 0; background: #111; color: #eee; font: 14px ui-sans-serif, system-ui; }
       body { padding: 16px; }
@@ -16,7 +16,7 @@
     </style>
   </head>
   <body>
-    <h1>webgl-analyzer demo</h1>
+    <h1>gpu-probe demo</h1>
     <p class="lead">Two independent WebGL2 canvases. Use the <b>context</b> dropdown in the HUD to switch between them — the selected one gets a blue outline.</p>
     <p style="margin: -8px 0 16px; color:#666; font-size:12px;">
       Other demos:
@@ -39,7 +39,7 @@
     </div>
 
     <!-- Load analyzer BEFORE the app creates its WebGL contexts. -->
-    <script src="../dist/webgl-analyzer.js"></script>
+    <script src="../dist/gpu-probe.js"></script>
     <script>
       WebGLAnalyzer.install();
       WebGLAnalyzer.showHUD();

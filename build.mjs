@@ -1,7 +1,7 @@
 // build.mjs
 // Produces:
-//   dist/webgl-analyzer.js        (IIFE, readable)
-//   dist/webgl-analyzer.min.js    (IIFE, minified)
+//   dist/gpu-probe.js             (IIFE, readable)
+//   dist/gpu-probe.min.js         (IIFE, minified)
 //   dist/bookmarklet.js           (IIFE, minified, auto-runs)
 //   dist/bookmarklet.url.txt      (javascript: URL ready to paste as a bookmark)
 //
@@ -14,7 +14,7 @@ import path from "node:path";
 const watch = process.argv.includes("--watch");
 const outdir = "dist";
 
-const banner = `/* webgl-analyzer v0.2.0 — https://github.com/arthurcloche/webgl-analyzer */`;
+const banner = `/* gpu-probe v0.2.0 — https://github.com/shopify-playground/gpu-probe */`;
 
 await fs.mkdir(outdir, { recursive: true });
 
@@ -40,14 +40,14 @@ async function build() {
   // Library — readable
   await esbuild.build({
     ...commonLib,
-    outfile: path.join(outdir, "webgl-analyzer.js"),
+    outfile: path.join(outdir, "gpu-probe.js"),
     minify: false,
   });
 
   // Library — minified
   await esbuild.build({
     ...commonLib,
-    outfile: path.join(outdir, "webgl-analyzer.min.js"),
+    outfile: path.join(outdir, "gpu-probe.min.js"),
     minify: true,
   });
 
@@ -72,8 +72,8 @@ async function build() {
 
   const stats = await Promise.all(
     [
-      "webgl-analyzer.js",
-      "webgl-analyzer.min.js",
+      "gpu-probe.js",
+      "gpu-probe.min.js",
       "bookmarklet.js",
       "bookmarklet.url.txt",
     ].map(async (f) => {
@@ -91,7 +91,7 @@ async function build() {
 if (watch) {
   const ctxLib = await esbuild.context({
     ...commonLib,
-    outfile: path.join(outdir, "webgl-analyzer.js"),
+    outfile: path.join(outdir, "gpu-probe.js"),
   });
   const ctxBkm = await esbuild.context({
     ...commonBkm,

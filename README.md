@@ -1,4 +1,4 @@
-# webgl-analyzer
+# gpu-probe
 
 A drop-in analyzer for WebGL2 **and** WebGPU scenes. Inspect every program /
 pipeline, shader / module, active uniform, buffer, texture, framebuffer, and
@@ -74,15 +74,15 @@ pnpm serve            # http://localhost:8080/demo/
 
 | file                       | what                                                          |
 | -------------------------- | ------------------------------------------------------------- |
-| `dist/webgl-analyzer.js`     | readable IIFE, exposes `WebGLAnalyzer` + `WebGPUAnalyzer`     |
-| `dist/webgl-analyzer.min.js` | minified IIFE                                                 |
+| `dist/gpu-probe.js`          | readable IIFE, exposes `WebGLAnalyzer` + `WebGPUAnalyzer`     |
+| `dist/gpu-probe.min.js`      | minified IIFE                                                 |
 | `dist/bookmarklet.js`        | minified IIFE, auto-runs on load                              |
 | `dist/bookmarklet.url.txt`   | `javascript:` URL — paste as a bookmark URL                   |
 
 ## Use as a library
 
 ```html
-<script src="dist/webgl-analyzer.js"></script>
+<script src="dist/gpu-probe.js"></script>
 <script>WebGLAnalyzer.install(); WebGLAnalyzer.showHUD();</script>
 <!-- your scene script(s) here -->
 ```
