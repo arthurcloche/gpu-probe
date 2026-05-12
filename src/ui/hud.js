@@ -254,6 +254,7 @@ function makeKeyedList(parent, opts) {
     if (collapsed) return;
     empty.style.display = items.length ? "none" : "";
     const seen = new Set();
+    let i = 0;
     for (const item of items) {
       const key = opts.getKey(item);
       seen.add(key);
@@ -261,7 +262,6 @@ function makeKeyedList(parent, opts) {
       if (!entry) {
         entry = opts.build(item);
         rowMap.set(key, entry);
-        // ensure click handler reads latest item even on Frame-tab style key reuse
         if (entry.row && !entry.row.__wgla_clickbound && opts.onClick) {
           entry.row.addEventListener("click", () => opts.onClick(entry.item));
           entry.row.__wgla_clickbound = true;
@@ -269,7 +269,13 @@ function makeKeyedList(parent, opts) {
       }
       entry.item = item;
       opts.update(entry, item);
-      container.appendChild(entry.row); // move into order
+      // Only move the row when it isn't already in the right slot. Re-appending
+      // every frame triggers a layout *and* — more importantly — invalidates
+      // an in-progress click (mousedown and mouseup land on different DOM
+      // nodes, so the browser doesn't dispatch the click event).
+      const expected = container.children[i];
+      if (expected !== entry.row) container.insertBefore(entry.row, expected || null);
+      i++;
     }
     for (const [key, entry] of [...rowMap]) {
       if (!seen.has(key)) { entry.row.remove(); rowMap.delete(key); }
