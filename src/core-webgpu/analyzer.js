@@ -131,6 +131,39 @@ export class WebGPUAnalyzer {
     patchDevice(device, record);
   }
 
+  // Retroactive discovery for the bookmarklet case: requestAdapter /
+  // requestDevice have already resolved, so install()'s patches never fired.
+  // Walk window for live GPUDevice instances and adopt them. Future-created
+  // resources won't be visible (they were made before patchDevice ran), but
+  // anything created from now on is captured.
+  scan() {
+    if (typeof globalThis === "undefined") return this;
+    const found = new Set();
+    const visited = new WeakSet();
+    const SCAN_DEPTH = 4;
+    const MAX_KEYS = 400;
+    const looksLikeDevice = (o) =>
+      o && typeof o === "object" && o.queue && o.features && o.limits &&
+      typeof o.createBuffer === "function" && typeof o.createShaderModule === "function";
+    const walk = (obj, depth) => {
+      if (depth < 0 || !obj || typeof obj !== "object" || visited.has(obj)) return;
+      visited.add(obj);
+      let keys;
+      try { keys = Object.keys(obj); } catch (_) { return; }
+      if (keys.length > MAX_KEYS) keys = keys.slice(0, MAX_KEYS);
+      for (const k of keys) {
+        let v;
+        try { v = obj[k]; } catch (_) { continue; }
+        if (!v || typeof v !== "object") continue;
+        if (looksLikeDevice(v)) { found.add(v); continue; }
+        if (depth > 0) walk(v, depth - 1);
+      }
+    };
+    try { walk(globalThis, SCAN_DEPTH); } catch (_) {}
+    for (const device of found) this._onDevice(device, null);
+    return this;
+  }
+
   _onContext(device, canvas, configureDesc) {
     // device may be wrapped/added later. If we already track it, attach canvas info.
     const record = this.records.get(device);

@@ -31,7 +31,7 @@ const api = {
   // unified controls
   install:   () => { webgl.install(); webgpu.install(); return api; },
   uninstall: () => { webgl.uninstall(); /* webgpu is sticky */ return api; },
-  scan:      () => { webgl.scan(); return api; },
+  scan:      () => { webgl.scan(); webgpu.scan(); return api; },
   attach:    (gl, canvas, version) => webgl.attach(gl, canvas, version),
   // Three.js scene attach — backend-agnostic; works for WebGLRenderer and WebGPURenderer.
   attachScene: (scene, opts) => { scenes.attach(scene, opts); return api; },

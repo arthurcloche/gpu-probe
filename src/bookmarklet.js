@@ -11,10 +11,12 @@ const webgl  = getAnalyzer().install();
 const webgpu = getWebGPUAnalyzer().install();
 const scenes = getSceneTracker();
 
-// install() only patches FUTURE getContext calls; the page already created
-// its context before the user clicked the bookmarklet, so we also scan
-// existing canvases and patch their gl methods retroactively.
+// install() only patches FUTURE getContext / requestAdapter calls; the page
+// already created its context before the user clicked the bookmarklet, so we
+// also scan existing canvases (WebGL) and window globals (WebGPU) to find
+// resources retroactively.
 webgl.scan();
+webgpu.scan();
 
 const scanTarget = {
   attachScene: (s, opts) => scenes.attach(s, opts),
@@ -36,7 +38,7 @@ if (typeof globalThis !== "undefined") {
   globalThis.GPUProbe = {
     webgl, webgpu, scenes,
     install:  () => { webgl.install(); webgpu.install(); },
-    scan:     () => { webgl.scan(); scanWindowForScenes(scanTarget); },
+    scan:     () => { webgl.scan(); webgpu.scan(); scanWindowForScenes(scanTarget); },
     report:   () => { webgl.report(); if (webgpu.records.size) webgpu.report(); },
     data:     () => ({ webgl: webgl.data(), webgpu: webgpu.data() }),
     reset:    () => { webgl.reset(); webgpu.reset(); },
