@@ -10,6 +10,12 @@ const webgl  = getAnalyzer().install();
 const webgpu = getWebGPUAnalyzer().install();
 const scenes = getSceneTracker();
 
+// Bookmarklets run AFTER the page created its context — install() only
+// patches FUTURE getContext calls, so we also need to scan() existing
+// canvases and instrument their gl methods retroactively. Without this the
+// Programs / Resources tabs are empty until the user clicks Scan manually.
+webgl.scan();
+
 // ─── auto-detect Three.js scenes/models on the page ──────────────────────
 // We can't see bundled `THREE`, but Three sets duck-typed flags (.isScene,
 // .isObject3D, .userData.gltfExtensions). Walk a handful of likely globals

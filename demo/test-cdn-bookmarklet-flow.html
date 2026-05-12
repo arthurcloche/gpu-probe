@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>cdn-bookmarklet-flow probe</title></head>
+<body>
+<canvas id="c" width="256" height="256"></canvas>
+<pre id="out" style="font:11px monospace;background:#111;color:#cde;padding:8px;white-space:pre-wrap"></pre>
+
+<!-- Three.js loads & renders FIRST, like a real-world page -->
+<script type="importmap">
+{ "imports": { "three": "https://esm.sh/three@0.169.0" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas });
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+cam.position.z = 3;
+const mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:0xff8844}));
+scene.add(mesh);
+renderer.render(scene, cam);
+window.__renderer = renderer;
+window.__scene = scene;
+window.__cam = cam;
+window.__mesh = mesh;
+
+// === simulate bookmarklet click AFTER page ready ===
+await new Promise(r => setTimeout(r, 100));
+
+const out = (s) => document.getElementById("out").textContent += s + "\n";
+const sc = document.createElement("script");
+sc.src = "../dist/webgl-analyzer.min.js";
+sc.onload = () => {
+  // Mirror the CDN stub's boot() sequence:
+  WebGLAnalyzer.install();
+  WebGLAnalyzer.scan();         // <-- the fix
+  // simulate a follow-up render (Three's RAF loop in a real app)
+  renderer.render(scene, cam);
+
+  const data = WebGLAnalyzer.data();
+  const ctx0 = data.webgl?.contexts?.[0];
+  out(`after late install + scan + render:`);
+  out(`  contexts: ${data.webgl?.contexts?.length}`);
+  out(`  programs: ${ctx0?.programs.length}`);
+  for (const p of ctx0?.programs || []) {
+    out(`  ${p.id}: shaders=${p.shaders.length}, linked=${p.linked}`);
+    for (const sh of p.shaders) {
+      out(`    ${sh.type}: ${sh.sourceLength} chars, compiled=${sh.compiled}`);
+    }
+  }
+};
+document.head.appendChild(sc);
+</script>
+</body>
+</html>

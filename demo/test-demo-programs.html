@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>demo-programs probe</title></head>
+<body>
+<canvas id="c" width="256" height="256"></canvas>
+<pre id="out" style="font:11px monospace;background:#111;color:#cde;padding:8px;white-space:pre-wrap"></pre>
+
+<!-- Library installed BEFORE Three (like the demo does) -->
+<script src="../dist/webgl-analyzer.js"></script>
+<script>WebGLAnalyzer.install();</script>
+
+<script type="importmap">
+{ "imports": { "three": "https://esm.sh/three@0.169.0" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+const out = (s) => document.getElementById("out").textContent += s + "\n";
+
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas });
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+cam.position.z = 3;
+scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:0xff8844})));
+renderer.render(scene, cam);
+
+const gl = renderer.getContext();
+const data = WebGLAnalyzer.data();
+const ctx0 = data.webgl?.contexts?.[0];
+out(`contexts: ${data.webgl?.contexts?.length}`);
+out(`programs in ctx0: ${ctx0?.programs.length}`);
+for (const p of ctx0?.programs || []) {
+  out(`  ${p.id}: shaders=${p.shaders.length}, linked=${p.linked}`);
+  for (const sh of p.shaders) {
+    out(`    ${sh.type}: ${sh.sourceLength} chars, compiled=${sh.compiled}`);
+  }
+}
+
+// Also try the late-load simulation: load via CDN-stub-style script after page rendered
+out("\n--- now simulating late attach via webgl.scan() ---");
+WebGLAnalyzer.scan();
+const data2 = WebGLAnalyzer.data();
+const ctx2 = data2.webgl?.contexts?.[0];
+out(`programs after scan: ${ctx2?.programs.length}`);
+for (const p of ctx2?.programs || []) {
+  out(`  ${p.id}: shaders=${p.shaders.length}`);
+  for (const sh of p.shaders) {
+    out(`    ${sh.type}: ${sh.sourceLength} chars`);
+  }
+}
+</script>
+</body>
+</html>

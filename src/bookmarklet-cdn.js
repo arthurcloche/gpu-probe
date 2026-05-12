@@ -14,7 +14,11 @@
     const api = window.GPUProbe;
     if (!api) return;
     api.install();
-    if (typeof api.scan === "function") api.scan();
+    // Critical for bookmarklet flow: install() only catches contexts created
+    // AFTER it runs, but the page already created its context before the user
+    // clicked the bookmarklet. scan() finds existing canvases and patches
+    // their gl methods so the next render hooks our wrappers.
+    api.scan();
     autoScan(api);
     api.showHUD();
     startPeriodicScan(api);

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>late-bookmarklet test</title></head>
+<body>
+<canvas id="c" width="256" height="256"></canvas>
+<pre id="out" style="font:11px monospace;background:#111;color:#cde;padding:8px;white-space:pre-wrap"></pre>
+<script>
+const out = (s) => document.getElementById("out").textContent += s + "\n";
+
+// === Simulate page using Three.js-style compile-detach-delete BEFORE analyzer ===
+const gl = document.getElementById("c").getContext("webgl2");
+
+const vs = `#version 300 es
+in vec3 position;
+void main() { gl_Position = vec4(position, 1.0); }`;
+
+const fs = `#version 300 es
+precision highp float;
+out vec4 frag;
+void main() { frag = vec4(1.0, 0.5, 0.2, 1.0); }`;
+
+const v = gl.createShader(gl.VERTEX_SHADER);
+gl.shaderSource(v, vs); gl.compileShader(v);
+const f = gl.createShader(gl.FRAGMENT_SHADER);
+gl.shaderSource(f, fs); gl.compileShader(f);
+const program = gl.createProgram();
+gl.attachShader(program, v); gl.attachShader(program, f);
+gl.linkProgram(program);
+// Match real Three.js: deleteShader without detaching.
+gl.deleteShader(v); gl.deleteShader(f);
+gl.useProgram(program);
+
+// Render once to register the program in the record (drawArrays adds it).
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0,0, 1,0,0, 0,1,0]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(program, "position");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
+gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+out("[before bookmarklet] context created, program linked + shaders deleted, drew 1 frame.");
+</script>
+
+<!-- === Now simulate the bookmarklet loading late === -->
+<script src="../dist/webgl-analyzer.min.js"></script>
+<script>
+out("\n[bookmarklet boot]");
+WebGLAnalyzer.install();
+WebGLAnalyzer.scan();    // pick up existing contexts
+
+// trigger another draw so the wraps see the program
+gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+const rec = WebGLAnalyzer.webgl.records.get(gl);
+out(`record.programs.size      = ${rec.programs.size}`);
+out(`record.programShaders.size = ${rec.programShaders.size}`);
+out(`record.shaderInfo.size    = ${rec.shaderInfo.size}`);
+out(`getAttachedShaders        = ${(gl.getAttachedShaders(program) || []).length}`);
+
+const data = WebGLAnalyzer.data();
+const prog = data.webgl?.contexts?.[0]?.programs?.[0];
+if (!prog) { out("NO PROGRAM IN SNAPSHOT"); }
+else {
+  out(`\nprogram ${prog.id}: shaders.length=${prog.shaders.length}, linked=${prog.linked}`);
+  for (const sh of prog.shaders) {
+    out(`  ${sh.type}: ${sh.sourceLength} chars, compiled=${sh.compiled}, source[0..40]="${sh.source.slice(0,40)}"`);
+  }
+}
+</script>
+</body>
+</html>
