@@ -8,6 +8,29 @@ one-liner pasted in DevTools.
 > WebGL2 is the primary WebGL target (WebGL1 is best-effort). The WebGPU side
 > is its own analyzer with its own data model — same UI shell.
 
+## Install the bookmarklet (Chrome / Edge / Brave)
+
+The bookmarklet loads `gpu-probe` from the jsDelivr CDN — no build step on your side.
+
+1. Right-click the bookmarks bar → **Add page…** (if it's hidden, press <kbd>⌘⇧B</kbd> / <kbd>Ctrl+Shift+B</kbd>).
+2. **Name** it `gpu-probe`.
+3. **URL**: paste the snippet from [`dist/bookmarklet-cdn.url.txt`](https://cdn.jsdelivr.net/gh/arthurcloche/gpu-probe@main/dist/bookmarklet-cdn.url.txt) — open that link, select-all, copy. Chrome strips the `javascript:` prefix when you paste into the URL bar but **keeps** it when you paste into a bookmark's URL field.
+4. Click **Save**.
+
+Now click the bookmark on any WebGL / WebGPU page. The HUD appears top-right and three.js scenes on `window.*` auto-attach.
+
+<details>
+<summary>Or paste the inline URL directly</summary>
+
+```
+javascript:(()=>{var e=document.createElement("script");e.src="https://cdn.jsdelivr.net/gh/arthurcloche/gpu-probe@main/dist/gpu-probe.min.js";e.onload=()=>{GPUProbe.install();GPUProbe.scan();GPUProbe.showHUD()};document.head.appendChild(e)})();void 0;
+```
+
+This is the human-readable minimal form. The published `dist/bookmarklet-cdn.url.txt` adds three.js scene auto-detection and a periodic re-scan — copy that one for the full experience.
+</details>
+
+Firefox truncates very long `javascript:` URLs, so prefer the CDN bookmarklet there (it stays under 3 kB) rather than the inline `dist/bookmarklet.url.txt` (~150 kB).
+
 ## What it reports
 
 **Live (per frame, via our own rAF loop)**
@@ -72,12 +95,14 @@ pnpm build
 pnpm serve            # http://localhost:8080/demo/
 ```
 
-| file                       | what                                                          |
-| -------------------------- | ------------------------------------------------------------- |
-| `dist/gpu-probe.js`          | readable IIFE, exposes `GPUProbe` (umbrella API)              |
-| `dist/gpu-probe.min.js`      | minified IIFE                                                 |
-| `dist/bookmarklet.js`        | minified IIFE, auto-runs on load                              |
-| `dist/bookmarklet.url.txt`   | `javascript:` URL — paste as a bookmark URL                   |
+| file                            | what                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `dist/gpu-probe.js`             | readable IIFE, exposes `GPUProbe` (umbrella API)                           |
+| `dist/gpu-probe.min.js`         | minified IIFE — served via jsDelivr for the CDN bookmarklet                |
+| `dist/bookmarklet.js`           | minified IIFE, auto-runs on load — fully inlined (no CDN fetch)            |
+| `dist/bookmarklet.url.txt`      | inline `javascript:` URL (~150 kB)                                         |
+| `dist/bookmarklet-cdn.js`       | tiny stub that loads `gpu-probe.min.js` from jsDelivr                      |
+| `dist/bookmarklet-cdn.url.txt`  | CDN `javascript:` URL (~2 kB) — recommended                                |
 
 ## Use as a library
 
@@ -97,11 +122,22 @@ GPUProbe.reset();               // clear counters, keep resources
 
 ## Use as a bookmarklet
 
+See [Install the bookmarklet](#install-the-bookmarklet-chrome--edge--brave) above — the CDN version is the recommended path.
+
+If you want a fully-inlined bookmarklet (no CDN fetch, ~150 kB URL):
+
 1. `pnpm build`
 2. Copy contents of `dist/bookmarklet.url.txt` → new bookmark URL.
-3. Click on any page. HUD appears top-right.
 
 Re-clicking re-scans and re-mounts the HUD. If the scene was already running when you clicked, the analyzer captures currently-bound resources on attach and picks up the rest as the app re-binds them on subsequent frames.
+
+## Publishing the CDN bookmarklet (maintainers)
+
+```sh
+pnpm publish-cdn
+```
+
+Builds, force-pushes source to `public/main`, then force-pushes a `dist/` commit on top so jsDelivr serves the latest files. Working tree stays clean (`dist/` is gitignored locally). `public` should point at the public CDN-source repo (`https://github.com/arthurcloche/gpu-probe.git`). jsDelivr's edge cache refreshes ~60 s after the push.
 
 ## API
 
