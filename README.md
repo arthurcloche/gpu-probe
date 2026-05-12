@@ -131,14 +131,6 @@ If you want a fully-inlined bookmarklet (no CDN fetch, ~150 kB URL):
 
 Re-clicking re-scans and re-mounts the HUD. If the scene was already running when you clicked, the analyzer captures currently-bound resources on attach and picks up the rest as the app re-binds them on subsequent frames.
 
-## Publishing the CDN bookmarklet (maintainers)
-
-```sh
-pnpm publish-cdn
-```
-
-Builds, force-pushes source to `public/main`, then force-pushes a `dist/` commit on top so jsDelivr serves the latest files. Working tree stays clean (`dist/` is gitignored locally). `public` should point at the public CDN-source repo (`https://github.com/arthurcloche/gpu-probe.git`). jsDelivr's edge cache refreshes ~60 s after the push.
-
 ## API
 
 ```ts
