@@ -88,6 +88,33 @@ function instrumentCanvasContext(ctx, canvas, onContext) {
   });
 }
 
+// Retroactive discovery: many WebGPU apps create the device in a closure that
+// is never exposed on window, so the analyzer's window-walk scan never finds
+// it. Patching GPUDevice.prototype methods lets us capture `this` the next
+// time the page calls any device method (createCommandEncoder fires every
+// frame in render loops), at which point we register the device.
+export function patchDevicePrototype(onDevice) {
+  if (typeof GPUDevice === "undefined") return;
+  const proto = GPUDevice.prototype;
+  if (proto.__wgpua_proto_patched) return;
+  proto.__wgpua_proto_patched = true;
+  const methods = [
+    "createCommandEncoder", "createBuffer", "createTexture",
+    "createBindGroup", "createShaderModule",
+    "createRenderPipeline", "createComputePipeline",
+  ];
+  for (const m of methods) {
+    const orig = proto[m];
+    if (typeof orig !== "function") continue;
+    proto[m] = function (...args) {
+      if (!this[PATCHED]) {
+        try { onDevice(this, null, null); } catch (_) {}
+      }
+      return orig.apply(this, args);
+    };
+  }
+}
+
 // ------------------------------------------------------------------
 // Patch a GPUDevice (called by the analyzer when a device is created)
 

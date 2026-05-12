@@ -2,7 +2,7 @@
 // One WebGPUAnalyzer per page. Tracks all GPUDevice objects + their resources,
 // drives per-frame stat flush via the shared frame ticker.
 
-import { patchGPU, patchDevice } from "./instrument.js";
+import { patchGPU, patchDevice, patchDevicePrototype } from "./instrument.js";
 import { extractDevice } from "./extract.js";
 import { onFrame } from "../core/frame.js";
 
@@ -120,6 +120,7 @@ export class WebGPUAnalyzer {
       (device, adapter, desc) => this._onDevice(device, adapter, desc),
       (device, canvas, configureDesc) => this._onContext(device, canvas, configureDesc),
     );
+    patchDevicePrototype((device) => this._onDevice(device, null, null));
     this._unsubFrame = onFrame((tick) => this._onTick(tick));
     return this;
   }
@@ -137,6 +138,10 @@ export class WebGPUAnalyzer {
   // resources won't be visible (they were made before patchDevice ran), but
   // anything created from now on is captured.
   scan() {
+    // Prototype patch handles the closure-bound case (next createCommandEncoder
+    // call adopts the device). The window-walk below catches devices stashed
+    // on globals (debug helpers, library singletons).
+    patchDevicePrototype((device) => this._onDevice(device, null, null));
     if (typeof globalThis === "undefined") return this;
     const found = new Set();
     const visited = new WeakSet();
